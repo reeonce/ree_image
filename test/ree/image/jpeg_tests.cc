@@ -1,5 +1,3 @@
-#include "jpeg_tests.h"
-
 #include <iostream>
 #include <cmath>
 

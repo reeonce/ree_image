@@ -24,19 +24,20 @@ target_include_directories(ree_image PUBLIC src/)
 add_executable(sample sample.cc)
 target_link_libraries(sample PRIVATE ree_image)
 
+set(REE_UNITTEST_SRC
+    test/ree/unittest.h
+    test/ree/unittest.cc
+)
+add_library(ree_unittest ${REE_UNITTEST_SRC})
+
 set(REE_IMAGE_TESTS_SRC
-    test/ree/image/png_tests.h
     test/ree/image/png_tests.cc
-
-    test/ree/image/jpeg_tests.h
     test/ree/image/jpeg_tests.cc
-
-    test/ree/image/ppm_tests.h
     test/ree/image/ppm_tests.cc
 )
 add_executable(test test.cc ${REE_IMAGE_TESTS_SRC})
 target_include_directories(test PRIVATE test/)
-target_link_libraries(test PRIVATE ree_image)
+target_link_libraries(test PRIVATE ree_image ree_unittest)
 
 add_custom_command(TARGET sample POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E

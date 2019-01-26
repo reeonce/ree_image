@@ -1,7 +1,11 @@
 #include "ppm.h"
 
+#include <cmath>
+
 #include <fstream>
 #include <sstream>
+
+// http://netpbm.sourceforge.net/doc/ppm.html
 
 namespace ree {
 namespace image {
@@ -30,18 +34,34 @@ int Ppm::Parse(const std::string &path, Image &image) {
 
     std::string mc;
     int maxValue;
+    int width, height, depthBits;
 
     std::stringstream ss(header);
-    if (!(ss >> mc >> image.width >> image.height >> maxValue)) {
+    if (!(ss >> mc >> width >> height >> maxValue)) {
         return ErrorCode::FileCorrupted;
     }
 
     int pos = ss.tellg();
     f.seekg(pos + 1, f.beg);
 
-    image.data.resize(image.width * image.height * 3);
-    f.read(reinterpret_cast<char *>(image.data.data()), image.data.size());
+    depthBits = 8;
+    while ((maxValue >> depthBits) > 0) {
+        depthBits++;
+    }
+    int bytesPerValue = depthBits > 8 ? 2 : 1;
+    std::vector<uint8_t> buffer;
+    buffer.resize(width * height * 3 * bytesPerValue);
+    f.read(reinterpret_cast<char *>(buffer.data()), buffer.size());
 
+    if (bytesPerValue > 1) {
+        uint16_t *data = reinterpret_cast<uint16_t *>(buffer.data());
+        for (int i = 0; i < width * height; ++i) {
+            data[i] = (data[i] >> 8) | ((data[i] & 0xff) << 8);
+        }
+    }
+
+    image = Image(width, height, ColorSpace::RGB, std::move(buffer));
+    image.depthBits = depthBits;
     return ErrorCode::OK;
 }
 int Ppm::Parse(const std::vector<uint8_t> &buffer, Image &image) {
@@ -57,13 +77,34 @@ int Ppm::Compose(const Image &image, const std::string &path) {
         return ErrorCode::IOFailed;
     }
 
+    int maxValue = (1 << image.depthBits) - 1;
+
     f << "P6\n";
     f << image.width << "\n";
     f << image.height << "\n";
-    f << 255 << "\n";
+    f << maxValue << "\n";
 
-    f.write(reinterpret_cast<const char *>(image.data.data()),
-        image.data.size());
+    if (image.depthBits <= 8) {
+        f.write(reinterpret_cast<const char *>(image.data.data()),
+            image.data.size());
+    } else {
+        std::vector<uint16_t> buffer;
+        buffer.resize(image.width * image.height * 3);
+
+        auto inData = reinterpret_cast<const uint16_t *>(image.data.data());
+        for (int row = 0; row < image.height; ++row) {
+            for (int col = 0; col < image.width; ++col) {
+                int idx = row * image.width + col;
+                buffer[idx * 3] = (inData[idx * 3] >> 8) |
+                    ((inData[idx * 3] & 0xff) << 8);
+                buffer[idx * 3 + 1] = (inData[idx * 3 + 1] >> 8) |
+                    ((inData[idx * 3 + 1] & 0xff) << 8);
+                buffer[idx * 3 + 2] = (inData[idx * 3 + 2] >> 8) |
+                    ((inData[idx * 3 + 2] & 0xff) << 8);
+            }
+        }
+        f.write(reinterpret_cast<const char *>(buffer.data()), buffer.size() * 2);
+    }
 
     return ErrorCode::OK;
 }

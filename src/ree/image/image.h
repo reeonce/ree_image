@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace ree {
@@ -16,13 +17,16 @@ enum class ColorSpace {
 
 struct Image {
     Image();
-    Image(int w, int h, ColorSpace cs, std::vector<uint8_t> &&d);
+    Image(int w, int h, ColorSpace cs, const std::vector<uint8_t> &&d);
 
     int width;
     int height;
+    int depthBits = 8;
     ColorSpace colorspace;
     std::vector<uint8_t> data;
 };
 
 }
 }
+
+std::string reeToString(ree::image::ColorSpace cs);

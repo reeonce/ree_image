@@ -1,5 +1,3 @@
-#include "png_tests.h"
-
 #include <ree/image/png_parser.h>
 
 namespace ree {
