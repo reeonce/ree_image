@@ -1,0 +1,248 @@
+#include "png.h"
+
+#include <cmath>
+#include <sstream>
+#include <iostream>
+#include <ree/io/bit_buffer.h>
+
+namespace ree {
+namespace image {
+
+static std::vector<uint8_t> kMagicStr = {0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
+
+static ColorSpace kColorSpaces[] = {
+    ColorSpace::Gray, // 0x00
+    ColorSpace::Unknown, // 0x01
+    ColorSpace::RGB, // 0x02
+    ColorSpace::RGB, // 0x03
+    ColorSpace::GrayAlpha, // 0x04
+    ColorSpace::Unknown, // 0x05
+    ColorSpace::RGBA, // 0x06
+};
+
+struct Chunk {
+    Chunk(uint32_t length, uint32_t type, const std::vector<uint8_t> &&payload,
+        uint32_t crcValue)
+        : length(length),
+          type(type),
+          payload(std::move(payload)),
+          crc(crcValue) {
+    }
+
+    bool Empty() const { return length == 0; }
+
+    uint32_t length = 0;
+    uint32_t type;
+    std::vector<uint8_t> payload;
+    uint32_t crc;
+};
+
+struct PngParseContext : public ParseContext {
+    using ParseContext::ParseContext;
+
+    int width;
+    int height;
+    uint8_t depth;
+    uint8_t colorType;
+    uint8_t compression;
+    uint8_t filter;
+    uint8_t interlace;
+};
+    
+static bool ParseChunk(const Chunk &chunk, PngParseContext *ctx);
+static Chunk ReadChunk(PngParseContext *ctx);
+
+static void DecFixedHuffmanDeflate(PngParseContext *ctx);
+static void DecDynamicHuffmanDeflate(PngParseContext *ctx,
+    ree::io::BigEndianLSigBitBuffer &bitBuffer);
+
+std::vector<std::string> Png::ValidExtensions() {
+    return {"png", "PNG", };
+}
+std::vector<uint8_t> Png::MagicNumber() {
+    return kMagicStr;
+}
+std::string Png::PreferredExtension() {
+    return "png";
+}
+
+ParseContext *Png::CreateParseContext(ree::io::Source *source,
+    const ParseOptions &options) {
+    return new PngParseContext(source, options);
+}
+ComposeContext *Png::CreateComposeContext(ree::io::Source *target,
+    const ComposeOptions &options) {
+    return new ComposeContext(target, options);
+}
+
+Image Png::ParseImage(ParseContext *contex) {
+    PngParseContext *ctx = static_cast<PngParseContext *>(contex);
+    auto source = ctx->source;
+
+    std::vector<uint8_t> magicStr(kMagicStr.size());
+    source->Read(magicStr.data(), magicStr.size());
+    if (magicStr != kMagicStr) {
+        ctx->errCode = ErrorCode::NotMatch;
+        return Image();
+    }
+
+    while (true) {
+        Chunk chunk = ReadChunk(ctx);
+        if (chunk.Empty()) {
+            break;
+        }
+        if (!ParseChunk(chunk, ctx)) {
+            break;
+        }
+        if (ctx->done) {
+            break;
+        }
+    }
+
+    if (ctx->errCode != ErrorCode::OK) {
+        return Image();
+    }
+
+    Image image;
+    image.width = ctx->width;
+    image.height = ctx->height;
+    image.colorspace = kColorSpaces[ctx->colorType];
+    return image;
+}
+
+void Png::ComposeImage(ComposeContext *ctx, const Image &image) {
+    auto target = ctx->target;
+}
+
+
+Chunk ReadChunk(PngParseContext *ctx) {
+    auto source = ctx->source;
+
+    uint32_t length = 0;
+    source->Read(reinterpret_cast<uint8_t *>(&length), 4);
+    length = ntohl(length);
+
+    uint32_t type;
+    source->Read(reinterpret_cast<uint8_t *>(&type), 4);
+    type = ntohl(type);
+
+    std::vector<uint8_t> payload;
+    if (length > 0) {
+        payload.resize(length);
+        source->Read(payload.data(), length);
+    }
+
+    uint32_t crc;
+    source->Read(reinterpret_cast<uint8_t *>(&crc), 4);
+    crc = ntohl(crc);
+
+    return Chunk(length, type, std::move(payload), crc);
+}
+
+bool ParseChunk(const Chunk &chunk, PngParseContext *ctx) {
+    uint32_t type = chunk.type;
+    if (type == 'IHDR') {
+        const uint8_t *cursor = chunk.payload.data();
+        
+        std::copy(cursor, cursor + 4, reinterpret_cast<uint8_t *>(&ctx->width));
+        cursor += 4;
+        ctx->width = ntohl(ctx->width);
+        
+        std::copy(cursor, cursor + 4, reinterpret_cast<uint8_t *>(&ctx->height));
+        cursor += 4;
+        ctx->height = ntohl(ctx->height);
+        
+        std::copy(cursor, cursor + 1, &ctx->depth);
+        cursor += 1;
+        
+        std::copy(cursor, cursor + 1, &ctx->colorType);
+        cursor += 1;
+        
+        std::copy(cursor, cursor + 1, &ctx->compression);
+        cursor += 1;
+        
+        std::copy(cursor, cursor + 1, &ctx->filter);
+        cursor += 1;
+        
+        std::copy(cursor, cursor + 1, &ctx->interlace);
+        cursor += 1;
+    } else if (type == 'iCCP') {
+        
+    } else if (type == 'pHYs') {
+        
+    } else if (type == 'iTXt') {
+        std::string xml(chunk.payload.begin(), chunk.payload.end());
+        std::cout << xml << std::endl;
+    } else if (type == 'iDOT') {
+        
+    } else if (type == 'PLTE') {
+        
+    } else if (type == 'IDAT') {
+        ree::io::BigEndianLSigBitBuffer bitBuffer(chunk.payload.data(),
+            chunk.payload.size());
+        uint8_t cmf = bitBuffer.NextBits(8);
+        uint8_t cm = bitBuffer.ReadBits(4);
+        assert(cm == 0x08);
+        
+        uint8_t cinfo = bitBuffer.ReadBits(4);
+        int windowBase = cinfo + 8;
+        int windowSize = 1 << windowBase;
+        
+        uint8_t flg = bitBuffer.NextBits(8);
+        assert((cmf * 256 + flg) % 31 == 0);
+        
+        bitBuffer.ReadBits(5);
+        uint8_t fdict = bitBuffer.ReadBits(1);
+        if (fdict) {
+            // TODO: FDICT
+        }
+        uint8_t flevel = bitBuffer.ReadBits(2);
+        
+        auto dataIt = chunk.payload.begin() + 2;
+        
+        uint8_t bfinal = 0;
+        do {
+            bfinal = bitBuffer.ReadBits(1);
+            uint8_t btype = bitBuffer.ReadBits(2);
+            assert(btype != 0x11);
+            
+            switch (btype) {
+            case 0x00: {
+                bitBuffer.ReadBits(5);
+                
+                uint32_t len = bitBuffer.ReadBits(16);
+                uint32_t nlen = bitBuffer.ReadBits(16);
+                
+                std::vector<uint8_t> colordata(dataIt + 1, dataIt + 1 + len);
+            }
+                break;
+            case 0x01:
+                DecFixedHuffmanDeflate(ctx);
+                break;
+            case 0x02:
+                DecDynamicHuffmanDeflate(ctx, bitBuffer);
+                break;
+            }
+        } while (bfinal == 0);
+        
+    } else if (type == 'IEND') {
+        ctx->done = true;
+        assert(chunk.length == 0);
+    }
+    return true;
+}
+
+void DecFixedHuffmanDeflate(PngParseContext *ctx) {
+    
+}
+    
+void DecDynamicHuffmanDeflate(PngParseContext *ctx,
+    ree::io::BigEndianLSigBitBuffer &bitBuffer) {
+    bitBuffer.ReadBits(5);
+    
+    uint32_t len = bitBuffer.ReadBits(16);
+    uint32_t nlen = bitBuffer.ReadBits(16);
+}
+
+}
+}

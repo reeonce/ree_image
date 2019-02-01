@@ -5,7 +5,9 @@
 namespace ree {
 namespace image {
 
-class Ppm : public FileFormatInterface {
+
+/// http://www.libpng.org/pub/png/spec/1.2/PNG-Contents.html
+class Png : public FileFormatInterface {
 public:
     std::vector<std::string> ValidExtensions() override;
     std::vector<uint8_t> MagicNumber() override;

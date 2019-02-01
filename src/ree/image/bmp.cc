@@ -1,12 +1,11 @@
-#include <cstdlib>
-#include <cstdint>
-
-#include <fstream>
-#include <string>
-#include <vector>
+#include "bmp.h"
 
 #include <iostream>
 
+#include <ree/io/bit_buffer.h>
+
+namespace ree {
+namespace image {
 
 struct Pixel {
     uint8_t r;
@@ -15,95 +14,136 @@ struct Pixel {
     uint8_t a;
 };
 
-int parse_file(const std::string &path, std::vector<uint8_t> &img);
-int parse_file_header(std::ifstream &f, uint32_t &data_offset);
-int parse_dib_header(std::ifstream &f, uint32_t &width, uint32_t &height,
-    uint16_t &bits_per_pixel, uint32_t &data_size, uint32_t &color_palettes);
-int parse_color_table_header(std::ifstream &f, 
-    std::vector<Pixel> &color_palette);
-int parse_color_data(std::ifstream &f, uint32_t width, uint32_t height, uint32_t linesize,
-    uint16_t &bits_per_pixel, const std::vector<Pixel> &color_palette, 
-    std::vector<uint8_t> &color);
+enum DIBHeaderType {
+    BITMAPCOREHEADER = 12,
+    OS22XBITMAPHEADERS = 16,
+    BITMAPINFOHEADER = 40,
+    BITMAPV2INFOHEADER = 52,
+    BITMAPV3INFOHEADER = 56,
+    OS22XBITMAPHEADER = 64,
+    BITMAPV4HEADER = 108,
+    BITMAPV5HEADER = 124,
+};
 
-int parse_file(const std::string &path, std::vector<uint8_t> &img) {
-    std::ifstream f(path, std::ifstream::binary);
-    if (!f.is_open()) {
-        return -1;
-    }
-    int ret;
-    uint32_t data_offset = 0;
-    ret = parse_file_header(f, data_offset);
-    if (ret != 0) {
-        return ret;
-    }
+struct BmpContext : public ParseContext {
+    using ParseContext::ParseContext;
 
-    uint32_t width, height;
+    uint32_t data_offset;
+    uint32_t file_size;
+
+    DIBHeaderType dib_header_type;
+    uint32_t width;
+    uint32_t height;
+    uint16_t planes;
     uint16_t bits_per_pixel;
+    uint32_t compression_method;
     uint32_t data_size;
+    uint32_t hppm;
+    uint32_t vppm;
     uint32_t color_palettes;
-    ret = parse_dib_header(f, width, height, bits_per_pixel, data_size, 
-        color_palettes);
-    if (ret != 0) {
-        return ret;
-    }
+    uint32_t useful_colors;
+
     std::vector<Pixel> color_palette;
-    color_palette.resize(color_palettes);
-    ret = parse_color_table_header(f, color_palette);
-    if (ret != 0) {
-        return ret;
+
+    std::vector<uint8_t> color;
+};
+
+static int parse_file_header(ree::io::Source &source, BmpContext &ctx);
+static int parse_dib_header(ree::io::Source &source, BmpContext &ctx);
+static int parse_color_table_header(ree::io::Source &source, BmpContext &ctx);
+static int parse_color_data(ree::io::Source &source, BmpContext &ctx);
+
+
+std::vector<std::string> Bmp::ValidExtensions() {
+    return { "bmp", "BMP"};
+}
+std::vector<uint8_t> Bmp::MagicNumber() {
+    return {'B', 'M'};
+}
+std::string Bmp::PreferredExtension() {
+    return "bmp";
+}
+
+ParseContext *Bmp::CreateParseContext(ree::io::Source *source,
+    const ParseOptions &options) {
+    return new BmpContext(source, options);
+}
+ComposeContext *Bmp::CreateComposeContext(ree::io::Source *target,
+    const ComposeOptions &options) {
+    return nullptr;
+}
+
+Image Bmp::ParseImage(ParseContext *contex) {
+    auto ctx = reinterpret_cast<BmpContext *>(contex);
+    auto source = ctx->source;
+
+    if (source->OpenToRead() != 0) {
+        ctx->errCode = ErrorCode::IOFailed;
+        return Image();
     }
 
-    uint32_t linesize = (bits_per_pixel * width + 31) / 32 * 4;
-    img.resize(width * height * 4);
-    f.seekg(data_offset, f.beg);
-    return parse_color_data(f, width, height, linesize, bits_per_pixel, color_palette, img);
+    if (parse_file_header(*source, *ctx) != 0) {
+        ctx->errCode = ErrorCode::FileCorrupted;
+        return Image();
+    }
+    if (parse_dib_header(*source, *ctx) != 0) {
+        ctx->errCode = ErrorCode::FileCorrupted;
+        return Image();
+    }
+    if (parse_color_table_header(*source, *ctx) != 0) {
+        ctx->errCode = ErrorCode::FileCorrupted;
+        return Image();
+    }
+    source->Seek(ctx->data_offset);
+    if (parse_color_data(*source, *ctx) != 0) {
+        ctx->errCode = ErrorCode::FileCorrupted;
+        return Image();
+    }
+    return Image(ctx->width, ctx->height, ColorSpace::RGB, std::move(ctx->color));
 }
-int parse_file_header(std::ifstream &f, uint32_t &data_offset) {
-    char signature[2] = {0x00};
-    f.read(signature, 2);
+void Bmp::ComposeImage(ComposeContext *ctx, const Image &image) {
+    ctx->errCode = ErrorCode::NotImplemented;
+}
+
+int parse_file_header(ree::io::Source &source, BmpContext &ctx) {
+    uint8_t signature[2] = {0x00};
+    source.Read(signature, sizeof(signature));
     if (signature[0] != 'B' || signature[1] != 'M') {
         return -2;
     }
 
-    uint32_t file_size;
-    f.read(reinterpret_cast<char *>(&file_size), 4);
-    f.read(reinterpret_cast<char *>(&file_size), 4);
-    f.read(reinterpret_cast<char *>(&data_offset), 4);
+    source.Read(reinterpret_cast<uint8_t *>(&ctx.file_size), 4);
+    uint8_t reserved[4];
+    source.Read(reserved, sizeof(reserved));
+    source.Read(reinterpret_cast<uint8_t *>(&ctx.data_offset), 4);
     return 0;
 }
-int parse_dib_header(std::ifstream &f, uint32_t &width, uint32_t &height,
-    uint16_t &bits_per_pixel, uint32_t &data_size, uint32_t &color_palettes) {
-    uint32_t dib_header_size = 0;
-    f.read(reinterpret_cast<char *>(&dib_header_size), 4);
-    if (dib_header_size == 40) { // BITMAPINFOHEADER
-        f.read(reinterpret_cast<char *>(&width), 4);
-        f.read(reinterpret_cast<char *>(&height), 4);
+int parse_dib_header(ree::io::Source &source, BmpContext &ctx) {
+    source.Read(reinterpret_cast<uint8_t *>(&ctx.dib_header_type), 4);
+    if (ctx.dib_header_type == BITMAPINFOHEADER) { // BITMAPINFOHEADER
+        source.Read(reinterpret_cast<uint8_t *>(&ctx.width), 4);
+        source.Read(reinterpret_cast<uint8_t *>(&ctx.height), 4);
 
-        uint16_t planes = 0;
-        f.read(reinterpret_cast<char *>(&planes), 2);
+        source.Read(reinterpret_cast<uint8_t *>(&ctx.planes), 2);
+        source.Read(reinterpret_cast<uint8_t *>(&ctx.bits_per_pixel), 2);
 
-        f.read(reinterpret_cast<char *>(&bits_per_pixel), 2);
+        source.Read(reinterpret_cast<uint8_t *>(&ctx.compression_method), 4);
 
-        uint32_t compression_method = 0;
-        f.read(reinterpret_cast<char *>(&compression_method), 4);
+        source.Read(reinterpret_cast<uint8_t *>(&ctx.data_size), 4);
 
-        f.read(reinterpret_cast<char *>(&data_size), 4);
+        source.Read(reinterpret_cast<uint8_t *>(&ctx.hppm), 4);
+        source.Read(reinterpret_cast<uint8_t *>(&ctx.vppm), 4);
 
-        uint32_t hppm, vppm;
-        f.read(reinterpret_cast<char *>(&hppm), 4);
-        f.read(reinterpret_cast<char *>(&vppm), 4);
-
-        f.read(reinterpret_cast<char *>(&color_palettes), 4);
-
-        uint32_t useful_colors;
-        f.read(reinterpret_cast<char *>(&useful_colors), 4);
+        source.Read(reinterpret_cast<uint8_t *>(&ctx.color_palettes), 4);
+        source.Read(reinterpret_cast<uint8_t *>(&ctx.useful_colors), 4);
+        return 0;
     }
-    return 0;
+    return ErrorCode::FileCorrupted;
 }
-int parse_color_table_header(std::ifstream &f, 
-    std::vector<Pixel> &color_palette) {
-    f.read(reinterpret_cast<char *>(color_palette.data()), 
-        4 * color_palette.size());
+int parse_color_table_header(ree::io::Source &source, BmpContext &ctx) {
+    ctx.color_palette.resize(ctx.color_palettes);
+    source.Read(reinterpret_cast<uint8_t *>(ctx.color_palette.data()),
+        sizeof(Pixel) * ctx.color_palettes);
     return 0;
 }
 uint8_t read_7_bit(const uint8_t *buf, uint32_t pos) {
@@ -121,56 +161,31 @@ uint8_t read_7_bit(const uint8_t *buf, uint32_t pos) {
     uint8_t r_shift = l_bits + 1;
     return ((vl << l_shift) | (vr >> r_shift)) & 0x7f;
 }
-int parse_color_data(std::ifstream &f, uint32_t width, uint32_t height, uint32_t linesize,
-    uint16_t &bits_per_pixel, const std::vector<Pixel> &color_palette, 
-    std::vector<uint8_t> &color) {
-    std::vector<char> line;
-    line.resize(linesize);
-    for (uint32_t y = 0; y < height; ++y) {
-        f.read(line.data(), linesize);
-        for (uint32_t x = 0; x < width; ++x) {
-            uint32_t v = read_7_bit(reinterpret_cast<const uint8_t *>(line.data()), 
-                bits_per_pixel * x);
+int parse_color_data(ree::io::Source &source, BmpContext &ctx) {
+    uint32_t linesize = (ctx.bits_per_pixel * ctx.width + 31) / 32 * 4;
 
-            Pixel p = color_palette[v];
+    std::vector<uint8_t> line;
+    line.resize(linesize);
+
+    for (uint32_t y = 0; y < ctx.height; ++y) {
+        source.Read(line.data(), linesize);
+        ree::io::LSigBitBuffer bitBuf(line.data(), line.size());
+        for (uint32_t x = 0; x < ctx.width; ++x) {
+            uint32_t v = bitBuf.ReadBits(7);
+
+            Pixel p = ctx.color_palette[v];
 
             std::cout << v << ": " << (int)p.r << "," << (int)p.g << "," << (int)p.b << "," << (int)p.a << std::endl;
 
-            uint32_t idx = (y * width + x) * 4;
-            color[idx + 0] = p.r;
-            color[idx + 1] = p.g;
-            color[idx + 2] = p.b;
-            color[idx + 3] = 0xff;
+            uint32_t idx = (y * ctx.width + x) * 4;
+            ctx.color[idx + 0] = p.r;
+            ctx.color[idx + 1] = p.g;
+            ctx.color[idx + 2] = p.b;
+            ctx.color[idx + 3] = 0xff;
         }
     }
     return 0;
 }
 
-void test_read_7_bits() {
-    uint8_t buf[] = {0x34, 0x89, 0xef};
-    uint8_t v = read_7_bit(buf, 0);
-    v = read_7_bit(buf, 1);
-    v = read_7_bit(buf, 2);
-    v = read_7_bit(buf, 3);
-    v = read_7_bit(buf, 4);
-    v = read_7_bit(buf, 5);
-    v = read_7_bit(buf, 6);
-    v = read_7_bit(buf, 7);
-    v = read_7_bit(buf, 8);
-    v = read_7_bit(buf, 9);
-    v = read_7_bit(buf, 10);
-    v = read_7_bit(buf, 11);
-    v = read_7_bit(buf, 12);
 }
-
-int main(int argc, char const *argv[]) {
-    // test_read_7_bits();
-
-    std::string path(argv[1]);
-    std::vector<uint8_t> img;
-    parse_file(path, img);
-
-    std::ofstream out(path + ".rgba", std::ofstream::binary);
-    out.write(reinterpret_cast<const char *>(img.data()), img.size());
-    return 0;
 }

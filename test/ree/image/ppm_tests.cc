@@ -9,8 +9,12 @@ R_TEST_F(Ppm, ParsePpm) {
     Ppm ppm;
     Image img;
     {
-        int ret = ppm.Parse("../test_assets/dot1.ppm", img);
-        R_ASSERT_EQ(ret, ErrorCode::OK);
+        auto source = ree::io::Source::SourceByPath("../test_assets/dot1.ppm");
+        source->OpenToRead();
+        auto ctx = ppm.CreateParseContext(source.get(), ParseOptions());
+        img = ppm.ParseImage(ctx);
+        source->Close();
+        R_ASSERT_EQ(ctx->errCode, ErrorCode::OK);
         R_ASSERT_EQ(img.width, 58);
         R_ASSERT_EQ(img.height, 50);
         R_ASSERT_EQ(img.depthBits, 8);
@@ -28,13 +32,22 @@ R_TEST_F(Ppm, ParsePpm) {
                 data16[idx * 3 + 2] = static_cast<uint16_t>(img.data[idx * 3 + 2]) << 2;
             }
         }
+
+        auto wsource = ree::io::Source::SourceByPath("../test_assets/ret.ppm");
+        wsource->OpenToWrite();
         Image img1(img.width, img.height, img.colorspace, std::move(data));
         img1.depthBits = 10;
-        ppm.Compose(img1, "../test_assets/ret.ppm");
+        auto wctx = ppm.CreateComposeContext(wsource.get(), ComposeOptions());
+        ppm.ComposeImage(wctx, img1);
+        wsource->Close();
     }
     {
-        int ret = ppm.Parse("../test_assets/ret.ppm", img);
-        R_ASSERT_EQ(ret, ErrorCode::OK);
+        auto source = ree::io::Source::SourceByPath("../test_assets/ret.ppm");
+        source->OpenToRead();
+        auto ctx = ppm.CreateParseContext(source.get(), ParseOptions());
+        img = ppm.ParseImage(ctx);
+        source->Close();
+        R_ASSERT_EQ(ctx->errCode, ErrorCode::OK);
         R_ASSERT_EQ(img.width, 58);
         R_ASSERT_EQ(img.height, 50);
         R_ASSERT_EQ(img.depthBits, 10);

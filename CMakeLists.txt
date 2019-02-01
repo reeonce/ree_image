@@ -2,46 +2,61 @@ cmake_minimum_required(VERSION 3.0.0 FATAL_ERROR)
 
 project(ree_image CXX)
 
-set(CMAKE_CXX_STANDARD 11)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
+if(NOT TARGET ree_io)
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../ree_io
+        ${CMAKE_CURRENT_BINARY_DIR}/ree_io)
+endif(NOT TARGET ree_io)
 
 set(REE_IMAGE_SRC
     src/ree/image/error.h
     src/ree/image/image.h
     src/ree/image/image.cc
-    src/ree/image/image_parser.h
-    src/ree/image/image_parser.cc
+    src/ree/image/file_format.h
+    src/ree/image/file_format.cc
+    src/ree/image/file_format_interface.h
+    src/ree/image/file_format_interface.cc
     src/ree/image/ppm.h
     src/ree/image/ppm.cc
-    src/ree/image/png_parser.h
-    src/ree/image/png_parser.cc
+    src/ree/image/bmp.h
+    src/ree/image/bmp.cc
+    src/ree/image/png.h
+    src/ree/image/png.cc
 )
 
-add_library(ree_image ${REE_IMAGE_SRC})
+add_library(ree_image ${REE_IMAGE_SRC} ${REE_IO_SRC})
 target_include_directories(ree_image PUBLIC src/)
+target_link_libraries(ree_image PUBLIC ree_io)
 
-add_executable(sample sample.cc)
-target_link_libraries(sample PRIVATE ree_image)
+target_compile_features(ree_image PUBLIC cxx_std_11)
 
-set(REE_UNITTEST_SRC
-    test/ree/unittest.h
-    test/ree/unittest.cc
-)
-add_library(ree_unittest ${REE_UNITTEST_SRC})
+option(REE_IMAGE_ENABLE_SAMPLE "enable samples" OFF)
+option(REE_IMAGE_ENABLE_TESTS "enable unit tests" OFF)
 
-set(REE_IMAGE_TESTS_SRC
-    test/ree/image/png_tests.cc
-    test/ree/image/jpeg_tests.cc
-    test/ree/image/ppm_tests.cc
-)
-add_executable(test test.cc ${REE_IMAGE_TESTS_SRC})
-target_include_directories(test PRIVATE test/)
-target_link_libraries(test PRIVATE ree_image ree_unittest)
+if(REE_IMAGE_ENABLE_SAMPLE)
+    add_executable(ree_image_sample sample/sample.cc)
+    target_link_libraries(ree_image_sample PRIVATE ree_image)
+    
+    add_custom_command(TARGET ree_image_sample POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E
+        copy_directory test_assets ${CMAKE_CURRENT_BINARY_DIR}/test_assets)
+endif(REE_IMAGE_ENABLE_SAMPLE)
 
-add_custom_command(TARGET sample POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E
-    copy_directory test_assets ${CMAKE_CURRENT_BINARY_DIR}/test_assets)
-add_custom_command(TARGET test POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E
-    copy_directory ${CMAKE_CURRENT_LIST_DIR}/test_assets ${CMAKE_CURRENT_BINARY_DIR}/test_assets)
+if(REE_IMAGE_ENABLE_TESTS)
+    if(NOT TARGET ree_unittest)
+        add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../ree_unittest
+            ${CMAKE_CURRENT_BINARY_DIR}/ree_unittest)
+    endif(NOT TARGET ree_unittest)
+
+    set(REE_IMAGE_TESTS_SRC
+        test/ree/image/png_tests.cc
+        test/ree/image/jpeg_tests.cc
+        test/ree/image/ppm_tests.cc
+    )
+    add_executable(ree_image_test test/test.cc ${REE_IMAGE_TESTS_SRC})
+    target_include_directories(ree_image_test PRIVATE test/)
+    target_link_libraries(ree_image_test PRIVATE ree_image ree_unittest)
+
+    add_custom_command(TARGET ree_image_test POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E
+        copy_directory ${CMAKE_CURRENT_LIST_DIR}/test_assets ${CMAKE_CURRENT_BINARY_DIR}/test_assets)
+endif(REE_IMAGE_ENABLE_TESTS)

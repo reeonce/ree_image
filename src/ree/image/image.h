@@ -12,12 +12,15 @@ enum class ColorSpace {
     RGBA,
     Gray,
     GrayAlpha,
-    YCbCr
+    YCbCr,
+    Unknown,
 };
 
 struct Image {
     Image();
     Image(int w, int h, ColorSpace cs, const std::vector<uint8_t> &&d);
+
+    bool Empty() const;
 
     int width;
     int height;

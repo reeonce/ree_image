@@ -11,6 +11,8 @@ enum ErrorCode {
     IOFailed = -1,
     FileCorrupted = -2,
     NotMatch = -3,
+    UnknownType = -4,
+    NotImplemented = -5,
 };
 
 }
