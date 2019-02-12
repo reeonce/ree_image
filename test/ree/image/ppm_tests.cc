@@ -1,6 +1,7 @@
 #include <ree/unittest.h>
 
 #include <ree/image/ppm.h>
+#include <ree/image/test_config.h>
 
 namespace ree {
 namespace image {
@@ -9,7 +10,7 @@ R_TEST_F(Ppm, ParsePpm) {
     Ppm ppm;
     Image img;
     {
-        auto source = ree::io::Source::SourceByPath("../test_assets/dot1.ppm");
+        auto source = ree::io::Source::SourceByPath(kTestAssetsDir + "dot1.ppm");
         source->OpenToRead();
         auto ctx = ppm.CreateParseContext(source.get(), ParseOptions());
         img = ppm.ParseImage(ctx);
@@ -33,7 +34,7 @@ R_TEST_F(Ppm, ParsePpm) {
             }
         }
 
-        auto wsource = ree::io::Source::SourceByPath("../test_assets/ret.ppm");
+        auto wsource = ree::io::Source::SourceByPath(kTestAssetsDir + "ret.ppm");
         wsource->OpenToWrite();
         Image img1(img.width, img.height, img.colorspace, std::move(data));
         img1.depthBits = 10;
@@ -42,7 +43,7 @@ R_TEST_F(Ppm, ParsePpm) {
         wsource->Close();
     }
     {
-        auto source = ree::io::Source::SourceByPath("../test_assets/ret.ppm");
+        auto source = ree::io::Source::SourceByPath(kTestAssetsDir + "ret.ppm");
         source->OpenToRead();
         auto ctx = ppm.CreateParseContext(source.get(), ParseOptions());
         img = ppm.ParseImage(ctx);

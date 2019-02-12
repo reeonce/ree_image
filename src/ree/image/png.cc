@@ -1,6 +1,8 @@
 #include "png.h"
 
+#define _USE_MATH_DEFINES
 #include <cmath>
+#include <cassert>
 #include <sstream>
 #include <iostream>
 
@@ -8,6 +10,10 @@
 #include <ree/io/bit_buffer.h>
 
 #define WITH_LIBZ 1
+
+#ifdef WIN32
+#include <Winsock2.h>
+#endif
 
 namespace ree {
 namespace image {

@@ -1,9 +1,11 @@
 #include <ree/image/png.h>
 #include <ree/image/ppm.h>
 
-#include <ree/unittest.h>
 
 #include <iostream>
+
+#include <ree/unittest.h>
+#include <ree/image/test_config.h>
 
 namespace ree {
 namespace image {
@@ -26,7 +28,7 @@ R_TEST_F(Png, ParseHuffmanCode) {
 
     int maxLen = 5;
     int bl_count[5] = {0};
-    int next_code[5] = {0};
+    int next_code[8] = {0};
 
     for (int i = 0; i < sizeof(tree) / sizeof(Leaf); ++i) {
         bl_count[tree[i].len]++;
@@ -55,14 +57,14 @@ R_TEST_F(Png, ParseHuffmanCode) {
 R_TEST_F(Png, ParsePng) {
     Png png;
     {
-        auto source = ree::io::Source::SourceByPath("../test_assets/dot1.png");
+        auto source = ree::io::Source::SourceByPath(kTestAssetsDir + "dot1.png");
         source->OpenToRead();
         auto ctx = png.CreateParseContext(source.get(), ParseOptions());
         Image img = png.ParseImage(ctx);
         source->Close();
 
         Ppm ppm;
-        auto wsource = ree::io::Source::SourceByPath("../test_assets/png_ret.ppm");
+        auto wsource = ree::io::Source::SourceByPath(kTestAssetsDir + "png_ret.ppm");
         wsource->OpenToWrite();
         auto wctx = ppm.CreateComposeContext(wsource.get(), ComposeOptions());
         ppm.ComposeImage(wctx, img.ConvertToColor(ColorSpace::RGB));

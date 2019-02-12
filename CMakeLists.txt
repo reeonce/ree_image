@@ -54,6 +54,7 @@ if(REE_IMAGE_ENABLE_TESTS)
     endif(NOT TARGET ree_unittest)
 
     set(REE_IMAGE_TESTS_SRC
+        test/ree/image/test_config.h
         test/ree/image/png_tests.cc
         test/ree/image/jpeg_tests.cc
         test/ree/image/ppm_tests.cc
