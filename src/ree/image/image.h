@@ -21,6 +21,7 @@ struct Image {
     Image(int w, int h, ColorSpace cs, const std::vector<uint8_t> &&d);
 
     bool Empty() const;
+    Image ConvertToColor(ColorSpace to) const;
 
     int width;
     int height;

@@ -1,4 +1,5 @@
 #include <ree/image/png.h>
+#include <ree/image/ppm.h>
 
 #include <ree/unittest.h>
 
@@ -59,6 +60,13 @@ R_TEST_F(Png, ParsePng) {
         auto ctx = png.CreateParseContext(source.get(), ParseOptions());
         Image img = png.ParseImage(ctx);
         source->Close();
+
+        Ppm ppm;
+        auto wsource = ree::io::Source::SourceByPath("../test_assets/png_ret.ppm");
+        wsource->OpenToWrite();
+        auto wctx = ppm.CreateComposeContext(wsource.get(), ComposeOptions());
+        ppm.ComposeImage(wctx, img.ConvertToColor(ColorSpace::RGB));
+        wsource->Close();
     }
 }
 

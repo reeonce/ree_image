@@ -169,7 +169,7 @@ int parse_color_data(ree::io::Source &source, BmpContext &ctx) {
 
     for (uint32_t y = 0; y < ctx.height; ++y) {
         source.Read(line.data(), linesize);
-        ree::io::LSigBitBuffer bitBuf(line.data(), line.size());
+        ree::io::RLSBBuffer bitBuf(line.data(), line.size());
         for (uint32_t x = 0; x < ctx.width; ++x) {
             uint32_t v = bitBuf.ReadBits(7);
 

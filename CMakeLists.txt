@@ -24,10 +24,16 @@ set(REE_IMAGE_SRC
 )
 
 add_library(ree_image ${REE_IMAGE_SRC} ${REE_IO_SRC})
-target_include_directories(ree_image PUBLIC src/)
+target_include_directories(ree_image PUBLIC src)
 target_link_libraries(ree_image PUBLIC ree_io)
-
 target_compile_features(ree_image PUBLIC cxx_std_11)
+
+option(REE_IMAGE_WITH_ZLIB "whether to use zlib to decode png" ON)
+if(REE_IMAGE_WITH_ZLIB)
+    find_package(zlib REQUIRED) 
+    target_link_libraries(ree_image PRIVATE ${ZLIB_LIBRARIES})
+    target_include_directories(ree_image PRIVATE ${ZLIB_INCLUDE_DIRS})
+endif(REE_IMAGE_WITH_ZLIB)
 
 option(REE_IMAGE_ENABLE_SAMPLE "enable samples" OFF)
 option(REE_IMAGE_ENABLE_TESTS "enable unit tests" OFF)

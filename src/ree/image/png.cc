@@ -3,7 +3,11 @@
 #include <cmath>
 #include <sstream>
 #include <iostream>
+
+#include <zlib.h>
 #include <ree/io/bit_buffer.h>
+
+#define WITH_LIBZ 1
 
 namespace ree {
 namespace image {
@@ -19,6 +23,7 @@ static ColorSpace kColorSpaces[] = {
     ColorSpace::Unknown, // 0x05
     ColorSpace::RGBA, // 0x06
 };
+static int kComponents[] = { 1, 0, 3, 3, 2, 0, 4 };
 
 struct Chunk {
     Chunk(uint32_t length, uint32_t type, const std::vector<uint8_t> &&payload,
@@ -29,7 +34,7 @@ struct Chunk {
           crc(crcValue) {
     }
 
-    bool Empty() const { return length == 0; }
+    bool Empty() const { return type == 0; }
 
     uint32_t length = 0;
     uint32_t type;
@@ -47,14 +52,22 @@ struct PngParseContext : public ParseContext {
     uint8_t compression;
     uint8_t filter;
     uint8_t interlace;
+    
+#if WITH_LIBZ
+    z_stream strm;
+#endif
+    std::vector<uint8_t> color;
+    size_t have = 0;
 };
     
 static bool ParseChunk(const Chunk &chunk, PngParseContext *ctx);
 static Chunk ReadChunk(PngParseContext *ctx);
+static Image CreateImage(PngParseContext *ctx);
 
+static void LibZInflate(const uint8_t *data, size_t size, PngParseContext *ctx);
 static void DecFixedHuffmanDeflate(PngParseContext *ctx);
 static void DecDynamicHuffmanDeflate(PngParseContext *ctx,
-    ree::io::BigEndianLSigBitBuffer &bitBuffer);
+    ree::io::BigEndianRLSBBuffer &bitBuffer);
 
 std::vector<std::string> Png::ValidExtensions() {
     return {"png", "PNG", };
@@ -103,11 +116,7 @@ Image Png::ParseImage(ParseContext *contex) {
         return Image();
     }
 
-    Image image;
-    image.width = ctx->width;
-    image.height = ctx->height;
-    image.colorspace = kColorSpaces[ctx->colorType];
-    return image;
+    return CreateImage(ctx);
 }
 
 void Png::ComposeImage(ComposeContext *ctx, const Image &image) {
@@ -166,6 +175,14 @@ bool ParseChunk(const Chunk &chunk, PngParseContext *ctx) {
         
         std::copy(cursor, cursor + 1, &ctx->interlace);
         cursor += 1;
+
+        ctx->strm.zalloc = Z_NULL;
+        ctx->strm.zfree = Z_NULL;
+        ctx->strm.opaque = Z_NULL;
+        ctx->strm.avail_in = 0;
+        ctx->strm.next_in = Z_NULL;
+        int ret = inflateInit(&ctx->strm);
+        assert(ret == 0);
     } else if (type == 'iCCP') {
         
     } else if (type == 'pHYs') {
@@ -178,7 +195,10 @@ bool ParseChunk(const Chunk &chunk, PngParseContext *ctx) {
     } else if (type == 'PLTE') {
         
     } else if (type == 'IDAT') {
-        ree::io::BigEndianLSigBitBuffer bitBuffer(chunk.payload.data(),
+#if WITH_LIBZ
+        LibZInflate(chunk.payload.data(), chunk.payload.size(), ctx);
+#else
+        ree::io::BigEndianRLSBBuffer bitBuffer(chunk.payload.data(),
             chunk.payload.size());
         uint8_t cmf = bitBuffer.NextBits(8);
         uint8_t cm = bitBuffer.ReadBits(4);
@@ -199,7 +219,6 @@ bool ParseChunk(const Chunk &chunk, PngParseContext *ctx) {
         uint8_t flevel = bitBuffer.ReadBits(2);
         
         auto dataIt = chunk.payload.begin() + 2;
-        
         uint8_t bfinal = 0;
         do {
             bfinal = bitBuffer.ReadBits(1);
@@ -224,12 +243,38 @@ bool ParseChunk(const Chunk &chunk, PngParseContext *ctx) {
                 break;
             }
         } while (bfinal == 0);
-        
+#endif
     } else if (type == 'IEND') {
-        ctx->done = true;
         assert(chunk.length == 0);
+        ctx->done = true;
     }
     return true;
+}
+    
+void LibZInflate(const uint8_t *data, size_t size, PngParseContext *ctx) {
+    ctx->strm.next_in = const_cast<uint8_t *>(data);
+    ctx->strm.avail_in = size;
+    
+    uint8_t chunk[32768];
+    
+    ctx->strm.next_out = chunk;
+    ctx->strm.avail_out = sizeof(chunk);
+    int ret = inflate(&ctx->strm, Z_NO_FLUSH);
+    assert(ret != Z_STREAM_ERROR);  /* state not clobbered */
+    switch (ret) {
+        case Z_NEED_DICT:
+            ret = Z_DATA_ERROR;     /* and fall through */
+        case Z_DATA_ERROR:
+        case Z_MEM_ERROR:
+            assert(false);
+    }
+    
+    size_t outSize = sizeof(chunk) - ctx->strm.avail_out;
+    ctx->color.insert(ctx->color.end(), chunk, chunk + outSize); 
+    
+    if (ret == Z_STREAM_END) {
+        inflateEnd(&ctx->strm);
+    }
 }
 
 void DecFixedHuffmanDeflate(PngParseContext *ctx) {
@@ -237,11 +282,55 @@ void DecFixedHuffmanDeflate(PngParseContext *ctx) {
 }
     
 void DecDynamicHuffmanDeflate(PngParseContext *ctx,
-    ree::io::BigEndianLSigBitBuffer &bitBuffer) {
-    bitBuffer.ReadBits(5);
+    ree::io::BigEndianRLSBBuffer &bitBuffer) {
+    static const unsigned short order[19] = /* permutation of code lengths */
+        {16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15};
+    
+    int nLen = bitBuffer.ReadBits(5) + 257;
+    int nDis = bitBuffer.ReadBits(5) + 1;
+    int ncLen = bitBuffer.ReadBits(4) + 4;
+    
+    std::vector<uint8_t> cLens(ncLen);
+    for (int i = 0; i < ncLen; i++) {
+        cLens[order[i]] = bitBuffer.ReadBits(3);
+    }
     
     uint32_t len = bitBuffer.ReadBits(16);
     uint32_t nlen = bitBuffer.ReadBits(16);
+}
+
+Image CreateImage(PngParseContext *ctx) {
+    int components = kComponents[ctx->colorType];
+    size_t bpp = (components * ctx->depth + 7) / 8;
+    std::vector<uint8_t> data(ctx->width * ctx->height * components);
+
+    size_t stride = (ctx->width * ctx->depth * components + 7) / 8 + 1;
+    assert(stride * ctx->height == ctx->color.size());
+    for (int row = 0; row < ctx->height; ++row) {
+        auto bufferBeign = ctx->color.data() + row * stride;
+        ree::io::BigEndianRLSBBuffer buffer(bufferBeign, stride);
+        int filter = buffer.ReadBits(8);
+
+        size_t dataBeginIndex = row * ctx->width * components;
+        for (int i = 0; i < components; ++i) {
+            data[dataBeginIndex + i] = buffer.ReadBits(ctx->depth);
+        }
+        for (int col = 1; col < ctx->width; ++col) {
+            for (int i = 0; i < components; ++i) {
+                uint32_t value = buffer.ReadBits(ctx->depth);
+                switch (filter) {
+                case 0:
+                    break;
+                case 1:
+                    value += data[dataBeginIndex + col * 4 + i - bpp];
+                    break;
+                }
+                data[dataBeginIndex + col * 4 + i] = value;
+            }
+        }
+    }
+    return Image(ctx->width, ctx->height, kColorSpaces[ctx->colorType], 
+        std::move(data));
 }
 
 }
