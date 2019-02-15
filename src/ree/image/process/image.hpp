@@ -52,23 +52,8 @@ private:
     std::vector<ValueT> data_;
 };
 
-template <typename ValueT> Image<ValueT>::Image(int w, int h,
-    class ColorSpace cs, uint8_t depth, std::vector<ValueT> &&d)
-    : width_(w), height_(h), colorspace_(cs), depthBits_(depth), data_(d) {
-    if (w != 0 && h != 0 && data_.empty()) {
-        data_.resize(w * h * cs.Components());
-    }
-}
-
-template <typename ValueT>
-Image<ValueT> ImageFromIOImage(const io::Image &srcImg) {
-    auto &srcImgData = srcImg.Data();
-    std::vector<ValueT> data(srcImgData.begin(), srcImgData.end());
-
-    return Image<ValueT>(srcImg.Width(), srcImg.Height(), srcImg.ColorSpace(),
-        srcImg.DepthBits(), std::move(data));
-
-}
+template <typename ValueT> 
+Image<ValueT> ImageFromIOImage(const io::Image &srcImg);
 
 }
 }

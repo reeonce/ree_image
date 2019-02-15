@@ -21,8 +21,8 @@ public:
     Image Load(ree::io::Source *source,
         const LoadOptions &options = LoadOptions());
 
-    Image::Image(int w, int h, class ColorSpace cs, uint8_t depth, 
-    std::vector<uint8_t> &&d);
+    Image(int w, int h, class ColorSpace cs, uint8_t depth,
+          std::vector<uint8_t> &&d);
 
     int Width() const { return width_; }
     int Height() const  { return height_; }
