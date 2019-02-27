@@ -1,12 +1,14 @@
-#include "ppm.h"
+#include "ppm.hpp"
 
 #include <cmath>
 #include <sstream>
 
-// http://netpbm.sourceforge.net/doc/ppm.html
+#include <ree/image/io/error.hpp>
 
+// http://netpbm.sourceforge.net/doc/ppm.html
 namespace ree {
 namespace image {
+namespace io {
 
 std::vector<std::string> Ppm::ValidExtensions() {
     return {"ppm", "pbm", "pnm"};
@@ -18,16 +20,16 @@ std::string Ppm::PreferredExtension() {
     return "ppm";
 }
 
-ParseContext *Ppm::CreateParseContext(ree::io::Source *source,
-    const ParseOptions &options) {
-    return new ParseContext(source, options);
+LoadContext *Ppm::CreateParseContext(ree::io::Source *source,
+    const LoadOptions &options) {
+    return new LoadContext(source, options);
 }
-ComposeContext *Ppm::CreateComposeContext(ree::io::Source *target,
-    const ComposeOptions &options) {
-    return new ComposeContext(target, options);
+WriteContext *Ppm::CreateComposeContext(ree::io::Source *target,
+    const WriteOptions &options) {
+    return new WriteContext(target, options);
 }
 
-Image Ppm::ParseImage(ParseContext *ctx) {
+Image Ppm::LoadImage(LoadContext *ctx) {
     auto source = ctx->source;
 
     std::string header;
@@ -38,8 +40,7 @@ Image Ppm::ParseImage(ParseContext *ctx) {
 
     auto magicNumber = this->MagicNumber();
     if (header[0] != magicNumber[0] || header[1] != magicNumber[1]) {
-        ctx->errCode = ErrorCode::NotMatch;
-        return Image();
+		throw FileCorruptedException("Magic number not match.");
     }
 
     std::string mc;
@@ -48,8 +49,7 @@ Image Ppm::ParseImage(ParseContext *ctx) {
 
     std::stringstream ss(header);
     if (!(ss >> mc >> width >> height >> maxValue)) {
-        ctx->errCode = ErrorCode::FileCorrupted;
-        return Image();
+		throw FileCorruptedException("wrong header.");
     }
 
     size_t pos = ss.tellg();
@@ -71,35 +71,34 @@ Image Ppm::ParseImage(ParseContext *ctx) {
         }
     }
 
-    Image image(width, height, ColorSpace::RGB, std::move(buffer));
-    image.depthBits = depthBits;
+    Image image(width, height, ColorSpace::RGB, depthBits, std::move(buffer));
     return image;
 }
-void Ppm::ComposeImage(ComposeContext *ctx, const Image &image) {
+void Ppm::WriteImage(WriteContext *ctx, const Image &image) {
     auto target = ctx->target;
 
-    int maxValue = (1 << image.depthBits) - 1;
+    int maxValue = (1 << image.DepthBits()) - 1;
 
     std::stringstream ss;
     ss << "P6\n";
-    ss << image.width << "\n";
-    ss << image.height << "\n";
+    ss << image.Width() << "\n";
+    ss << image.Height() << "\n";
     ss << maxValue << "\n";
 
     std::string header = ss.str();
     target->Write(reinterpret_cast<const uint8_t *>(header.data()),
         header.size());
 
-    if (image.depthBits <= 8) {
-        target->Write(image.data.data(), image.data.size());
+    if (image.DepthBits() <= 8) {
+        target->Write(image.Data().data(), image.Data().size());
     } else {
         std::vector<uint16_t> buffer;
-        buffer.resize(image.width * image.height * 3);
+        buffer.resize(image.Width() * image.Height() * 3);
 
-        auto inData = reinterpret_cast<const uint16_t *>(image.data.data());
-        for (int row = 0; row < image.height; ++row) {
-            for (int col = 0; col < image.width; ++col) {
-                int idx = row * image.width + col;
+        auto inData = reinterpret_cast<const uint16_t *>(image.Data().data());
+        for (int row = 0; row < image.Height(); ++row) {
+            for (int col = 0; col < image.Width(); ++col) {
+                int idx = row * image.Width() + col;
                 buffer[idx * 3] = (inData[idx * 3] >> 8) |
                     ((inData[idx * 3] & 0xff) << 8);
                 buffer[idx * 3 + 1] = (inData[idx * 3 + 1] >> 8) |
@@ -113,5 +112,6 @@ void Ppm::ComposeImage(ComposeContext *ctx, const Image &image) {
     }
 }
 
+}
 }
 }

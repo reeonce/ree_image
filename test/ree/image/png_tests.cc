@@ -1,14 +1,16 @@
-#include <ree/image/png.h>
-#include <ree/image/ppm.h>
+#include <ree/image/io/png.hpp>
+#include <ree/image/io/ppm.hpp>
 
 
 #include <iostream>
 
 #include <ree/unittest.h>
 #include <ree/image/test_config.h>
+#include <ree/image/process/image.hpp>
 
 namespace ree {
 namespace image {
+namespace io {
 
 R_TEST_F(Png, ParseHuffmanCode) {
     struct Leaf {
@@ -59,18 +61,23 @@ R_TEST_F(Png, ParsePng) {
     {
         auto source = ree::io::Source::SourceByPath(kTestAssetsDir + "dot1.png");
         source->OpenToRead();
-        auto ctx = png.CreateParseContext(source.get(), ParseOptions());
-        Image img = png.ParseImage(ctx);
+        auto ctx = png.CreateParseContext(source.get(), LoadOptions());
+        Image img = png.LoadImage(ctx);
         source->Close();
+
+		process::Image<uint8_t> pImg = process::ImageFromIOImage<uint8_t>(img);
+		process::Image<uint8_t> pCtvedImg = pImg.ConvertToColor(ColorSpace::RGB);
+		Image wImg = pCtvedImg.ToIOImage();
 
         Ppm ppm;
         auto wsource = ree::io::Source::SourceByPath(kTestAssetsDir + "png_ret.ppm");
         wsource->OpenToWrite();
-        auto wctx = ppm.CreateComposeContext(wsource.get(), ComposeOptions());
-        ppm.ComposeImage(wctx, img.ConvertToColor(ColorSpace::RGB));
+        auto wctx = ppm.CreateComposeContext(wsource.get(), WriteOptions());
+        ppm.WriteImage(wctx, wImg);
         wsource->Close();
     }
 }
 
+}
 }
 }

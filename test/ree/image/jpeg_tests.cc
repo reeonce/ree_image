@@ -3,8 +3,16 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 
+#include <ree/unittest.h>
+
+#include <ree/image/test_config.h>
+#include <ree/image/io/jpeg.hpp>
+#include <ree/image/io/ppm.hpp>
+#include <ree/image/process/image.hpp>
+
 namespace ree {
 namespace image {
+namespace io {
 
 void testJpeg() {
     int block[8][8] = {
@@ -91,5 +99,29 @@ void testJpeg() {
     }
 }
 
+R_TEST_F(Jpeg, ParseJpeg) {
+    Jpeg jpeg;
+    {
+        auto source = ree::io::Source::SourceByPath(kTestAssetsDir + "dot1.jpg");
+        source->OpenToRead();
+        auto ctx = jpeg.CreateParseContext(source.get(), LoadOptions());
+        Image img = jpeg.LoadImage(ctx);
+        source->Close();
+
+        
+        process::Image<uint8_t> pImg = process::ImageFromIOImage<uint8_t>(img);
+        process::Image<uint8_t> pCtvedImg = pImg.ConvertToColor(ColorSpace::RGB);
+        Image wImg = pCtvedImg.ToIOImage();
+
+        Ppm ppm;
+        auto wsource = ree::io::Source::SourceByPath(kTestAssetsDir + "jpg_ret.ppm");
+        wsource->OpenToWrite();
+        auto wctx = ppm.CreateComposeContext(wsource.get(), WriteOptions());
+        ppm.WriteImage(wctx, wImg);
+        wsource->Close();
+    }
+}
+
+}
 }
 }

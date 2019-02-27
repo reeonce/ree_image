@@ -8,19 +8,22 @@ if(NOT TARGET ree_io)
 endif(NOT TARGET ree_io)
 
 set(REE_IMAGE_SRC
-    src/ree/image/error.h
-    src/ree/image/image.h
-    src/ree/image/image.cc
-    src/ree/image/file_format.h
-    src/ree/image/file_format.cc
-    src/ree/image/file_format_interface.h
-    src/ree/image/file_format_interface.cc
-    src/ree/image/ppm.h
-    src/ree/image/ppm.cc
-    src/ree/image/bmp.h
-    src/ree/image/bmp.cc
-    src/ree/image/png.h
-    src/ree/image/png.cc
+    src/ree/image/io/error.hpp
+    src/ree/image/io/image.hpp
+    src/ree/image/io/image.cpp
+    src/ree/image/io/file_format.hpp
+    src/ree/image/io/file_format.cpp
+    src/ree/image/io/ppm.hpp
+    src/ree/image/io/ppm.cpp
+    src/ree/image/io/bmp.hpp
+    src/ree/image/io/bmp.cpp
+    src/ree/image/io/png.hpp
+    src/ree/image/io/png.cpp
+    src/ree/image/io/jpeg.hpp
+    src/ree/image/io/jpeg.cpp
+
+    src/ree/image/process/image.hpp
+    src/ree/image/process/image.cpp
 )
 
 add_library(ree_image ${REE_IMAGE_SRC} ${REE_IO_SRC})

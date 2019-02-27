@@ -1,4 +1,4 @@
-#include "png.h"
+#include "png.hpp"
 
 #define _USE_MATH_DEFINES
 #include <cmath>
@@ -8,15 +8,18 @@
 
 #include <zlib.h>
 #include <ree/io/bit_buffer.h>
+#include <ree/image/io/error.hpp>
 
 #define WITH_LIBZ 1
 
 #ifdef WIN32
 #include <Winsock2.h>
+#undef  LoadImage
 #endif
 
 namespace ree {
 namespace image {
+namespace io {
 
 static std::vector<uint8_t> kMagicStr = {0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
 
@@ -48,8 +51,8 @@ struct Chunk {
     uint32_t crc;
 };
 
-struct PngParseContext : public ParseContext {
-    using ParseContext::ParseContext;
+struct PngParseContext : public LoadContext {
+    using LoadContext::LoadContext;
 
     int width;
     int height;
@@ -85,24 +88,23 @@ std::string Png::PreferredExtension() {
     return "png";
 }
 
-ParseContext *Png::CreateParseContext(ree::io::Source *source,
-    const ParseOptions &options) {
+LoadContext *Png::CreateParseContext(ree::io::Source *source,
+    const LoadOptions &options) {
     return new PngParseContext(source, options);
 }
-ComposeContext *Png::CreateComposeContext(ree::io::Source *target,
-    const ComposeOptions &options) {
-    return new ComposeContext(target, options);
+WriteContext *Png::CreateComposeContext(ree::io::Source *target,
+    const WriteOptions &options) {
+    return new WriteContext(target, options);
 }
 
-Image Png::ParseImage(ParseContext *contex) {
+Image Png::LoadImage(LoadContext *contex) {
     PngParseContext *ctx = static_cast<PngParseContext *>(contex);
     auto source = ctx->source;
 
     std::vector<uint8_t> magicStr(kMagicStr.size());
     source->Read(magicStr.data(), magicStr.size());
     if (magicStr != kMagicStr) {
-        ctx->errCode = ErrorCode::NotMatch;
-        return Image();
+		throw FileCorruptedException("magic number not match.");
     }
 
     while (true) {
@@ -118,14 +120,10 @@ Image Png::ParseImage(ParseContext *contex) {
         }
     }
 
-    if (ctx->errCode != ErrorCode::OK) {
-        return Image();
-    }
-
     return CreateImage(ctx);
 }
 
-void Png::ComposeImage(ComposeContext *ctx, const Image &image) {
+void Png::WriteImage(WriteContext *ctx, const Image &image) {
     auto target = ctx->target;
 }
 
@@ -335,9 +333,10 @@ Image CreateImage(PngParseContext *ctx) {
             }
         }
     }
-    return Image(ctx->width, ctx->height, kColorSpaces[ctx->colorType], 
-        std::move(data));
+    return Image(ctx->width, ctx->height, kColorSpaces[ctx->colorType],
+		ctx->depth, std::move(data));
 }
 
+}
 }
 }

@@ -1,11 +1,13 @@
-#include "bmp.h"
+#include "bmp.hpp"
 
 #include <iostream>
 
 #include <ree/io/bit_buffer.h>
+#include <ree/image/io/error.hpp>
 
 namespace ree {
 namespace image {
+namespace io {
 
 struct Pixel {
     uint8_t r;
@@ -25,8 +27,8 @@ enum DIBHeaderType {
     BITMAPV5HEADER = 124,
 };
 
-struct BmpContext : public ParseContext {
-    using ParseContext::ParseContext;
+struct BmpContext : public LoadContext {
+    using LoadContext::LoadContext;
 
     uint32_t data_offset;
     uint32_t file_size;
@@ -64,45 +66,31 @@ std::string Bmp::PreferredExtension() {
     return "bmp";
 }
 
-ParseContext *Bmp::CreateParseContext(ree::io::Source *source,
-    const ParseOptions &options) {
+LoadContext *Bmp::CreateParseContext(ree::io::Source *source,
+    const LoadOptions &options) {
     return new BmpContext(source, options);
 }
-ComposeContext *Bmp::CreateComposeContext(ree::io::Source *target,
-    const ComposeOptions &options) {
+WriteContext *Bmp::CreateComposeContext(ree::io::Source *target,
+    const WriteOptions &options) {
     return nullptr;
 }
 
-Image Bmp::ParseImage(ParseContext *contex) {
+Image Bmp::LoadImage(LoadContext *contex) {
     auto ctx = reinterpret_cast<BmpContext *>(contex);
     auto source = ctx->source;
 
-    if (source->OpenToRead() != 0) {
-        ctx->errCode = ErrorCode::IOFailed;
-        return Image();
-    }
+	source->OpenToRead();
 
-    if (parse_file_header(*source, *ctx) != 0) {
-        ctx->errCode = ErrorCode::FileCorrupted;
-        return Image();
-    }
-    if (parse_dib_header(*source, *ctx) != 0) {
-        ctx->errCode = ErrorCode::FileCorrupted;
-        return Image();
-    }
-    if (parse_color_table_header(*source, *ctx) != 0) {
-        ctx->errCode = ErrorCode::FileCorrupted;
-        return Image();
-    }
+	parse_file_header(*source, *ctx);
+	parse_dib_header(*source, *ctx);
+	parse_color_table_header(*source, *ctx);
     source->Seek(ctx->data_offset);
-    if (parse_color_data(*source, *ctx) != 0) {
-        ctx->errCode = ErrorCode::FileCorrupted;
-        return Image();
-    }
-    return Image(ctx->width, ctx->height, ColorSpace::RGB, std::move(ctx->color));
+	parse_color_data(*source, *ctx);
+    return Image(ctx->width, ctx->height, ColorSpace::RGB, ctx->bits_per_pixel,
+        std::move(ctx->color));
 }
-void Bmp::ComposeImage(ComposeContext *ctx, const Image &image) {
-    ctx->errCode = ErrorCode::NotImplemented;
+void Bmp::WriteImage(WriteContext *ctx, const Image &image) {
+	throw NotImplementException();
 }
 
 int parse_file_header(ree::io::Source &source, BmpContext &ctx) {
@@ -138,7 +126,7 @@ int parse_dib_header(ree::io::Source &source, BmpContext &ctx) {
         source.Read(reinterpret_cast<uint8_t *>(&ctx.useful_colors), 4);
         return 0;
     }
-    return ErrorCode::FileCorrupted;
+	throw FileCorruptedException("wrong dib header.");
 }
 int parse_color_table_header(ree::io::Source &source, BmpContext &ctx) {
     ctx.color_palette.resize(ctx.color_palettes);
@@ -175,7 +163,8 @@ int parse_color_data(ree::io::Source &source, BmpContext &ctx) {
 
             Pixel p = ctx.color_palette[v];
 
-            std::cout << v << ": " << (int)p.r << "," << (int)p.g << "," << (int)p.b << "," << (int)p.a << std::endl;
+            std::cout << v << ": " << (int)p.r << "," << (int)p.g << ","
+                << (int)p.b << "," << (int)p.a << std::endl;
 
             uint32_t idx = (y * ctx.width + x) * 4;
             ctx.color[idx + 0] = p.r;
@@ -187,5 +176,6 @@ int parse_color_data(ree::io::Source &source, BmpContext &ctx) {
     return 0;
 }
 
+}
 }
 }
