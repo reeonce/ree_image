@@ -57,12 +57,33 @@ Image Image::Load(ree::io::Source *source, const LoadOptions &options) {
     return image;
 }
 
+Image::Image() : width_(0), height_(0) {
+}
+
 Image::Image(int w, int h, class ColorSpace cs, uint8_t depth, 
     std::vector<uint8_t> &&d)
     : width_(w), height_(h), colorspace_(cs), depthBits_(depth), data_(d) {
     if (w != 0 && h != 0 && data_.empty()) {
         data_.resize(w * h * cs.Components());
     }
+}
+
+Image::Image(Image &&other)
+    : Image() {
+    *this = std::move(other);
+}
+Image &Image::operator=(Image &&other) {
+    if (this != &other) {
+        width_ = other.width_;
+        height_ = other.height_;
+        colorspace_ = other.colorspace_;
+        depthBits_ = other.depthBits_;
+        data_ = std::move(other.data_);
+
+        other.width_ = 0;
+        other.height_ = 0;
+    }
+    return *this;
 }
 
 void Image::WriteTo(ree::io::Source *target, const WriteOptions &options) const {
