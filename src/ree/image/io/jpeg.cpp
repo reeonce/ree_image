@@ -91,6 +91,31 @@ struct HuffmanTable {
 
 using QuantizationTable = std::array<uint16_t, 64>;
 
+
+struct DcCoeff {
+    uint8_t x;
+    uint8_t diff;
+};
+
+#pragma pack(push, 1)
+struct AcCoeff {
+    union {
+        struct {
+            uint8_t runLength : 4;
+            uint8_t size : 4;
+        };
+        uint8_t x;
+    };
+    uint8_t amplitude;
+    
+};
+#pragma pack(pop)
+
+struct CodedMacroBlock {
+    DcCoeff dcc;
+    std::vector<AcCoeff> accs;
+};
+
 struct JpegParseContext : public LoadContext {
     using LoadContext::LoadContext;
 
@@ -104,14 +129,7 @@ struct JpegParseContext : public LoadContext {
 
     std::vector<QuantizationTable> qts;
 
-    uint8_t depth;
-    uint8_t colorType;
-    uint8_t compression;
-    uint8_t filter;
-    uint8_t interlace;
-    
-    std::vector<uint8_t> color;
-    size_t have = 0;
+    std::vector<CodedMacroBlock> mbs;
 };
 
 static void HandleMarker(uint8_t marker, JpegParseContext *ctx);
